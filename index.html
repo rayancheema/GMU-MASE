@@ -29,7 +29,7 @@ li{margin:4px 0}.k{color:var(--mu);font-size:13px}.row{display:flex;justify-cont
 </style></head><body><div id="app"></div>
 <script>
 const $=s=>document.querySelector(s),app=$('#app');
-let role='patient',user=null,bc=null;
+let role='medic',user=null,bc=null;
 try{bc=new BroadcastChannel('medcall')}catch(e){}
 const send=m=>{try{bc&&bc.postMessage(m)}catch(e){}};
 
@@ -41,20 +41,20 @@ const RED=/unconscious|passed out|not breathing|can.?t breathe|heavy bleeding|ca
 
 function authView(){
  app.innerHTML=`<h1>MedCall</h1><p>Voice-first medical help. Separate accounts for patients and medics.</p>
- <div class="tabs"><button id="tp" class="${role=='patient'?'on':''}">I need help</button><button id="tm" class="${role=='medic'?'on':''}">I’m a medic</button></div>
- <div class="card"><b>${role=='patient'?'Patient':'Medic'} sign in</b>
+ <div class="card" style="margin-top:24px"><b>${role=='patient'?'Patient':'Doctor'} sign in</b>
  <input id="nm" placeholder="Full name"><input id="pw" type="password" placeholder="Password">
  ${role=='medic'?'<input id="lic" placeholder="License number">':''}
  <button class="pri" id="go">Sign in</button></div>
- <p class="k" style="margin-top:12px">Prototype: no real authentication. Production needs server-side accounts with role claims and medic license verification.</p>`;
- $('#tp').onclick=()=>{role='patient';authView()};$('#tm').onclick=()=>{role='medic';authView()};
+ <p class="k" style="margin-top:12px">Prototype: no real authentication. Production needs server-side accounts with role claims and medic license verification.</p>
+ <div style="margin-top:auto;text-align:center;padding:16px 0"><button class="link" id="sw">${role=='patient'?'Sign in as doctor':'Sign in as patient'}</button></div>`;
+ $('#sw').onclick=()=>{role=role=='medic'?'patient':'medic';authView()};
  $('#go').onclick=()=>{user=$('#nm').value||(role=='medic'?'Dr. Demo':'Alex');role=='medic'?medicView():patientHome()};
 }
 
 function patientHome(){
  app.innerHTML=`<div class="row"><b>Hi, ${esc(user)}</b><button class="link" id="so">Sign out</button></div>
  <div class="center"><button class="sos" id="sos">Call for<br>help</button><p>One tap. Then just talk.<br>In a life-threatening emergency, call your local emergency number first.</p></div>`;
- $('#so').onclick=authView;$('#sos').onclick=startCall;
+ $('#so').onclick=()=>{role='medic';authView()};$('#sos').onclick=startCall;
 }
 
 let C;
