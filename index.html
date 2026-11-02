@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MedCall</title>
+<style>
+:root{--bg:#f6f8fa;--card:#fff;--tx:#14202b;--mu:#64727f;--ac:#d92d20;--ok:#12a150;--bd:#e3e8ee;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1419;--card:#1a222b;--tx:#eef2f6;--mu:#93a1af;--bd:#2a3541}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,-apple-system,sans-serif;display:flex;justify-content:center}
+#app{width:100%;max-width:440px;height:100%;display:flex;flex-direction:column;padding:16px}
+h1{font-size:22px;margin:4px 0 2px}p{margin:0;color:var(--mu)}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:16px;padding:14px;margin-top:12px}
+.tabs{display:flex;gap:8px;margin:16px 0}.tabs button{flex:1}
+button{font:inherit;border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:12px;padding:12px;cursor:pointer}
+button.on{background:var(--tx);color:var(--bg)}
+input{font:inherit;width:100%;padding:12px;border-radius:12px;border:1px solid var(--bd);background:var(--card);color:var(--tx);margin-top:8px}
+.pri{background:var(--ac);color:#fff;border:0;width:100%;font-weight:600;margin-top:12px}
+.sos{width:210px;height:210px;border-radius:50%;background:var(--ac);color:#fff;border:0;font-size:24px;font-weight:700;box-shadow:0 0 0 14px rgba(217,45,32,.15);margin:auto}
+.center{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:18px}
+.status{display:flex;align-items:center;gap:8px;font-weight:600}.dot{width:10px;height:10px;border-radius:50%;background:var(--ac);animation:p 1s infinite}.dot.g{background:var(--ok);animation:none}
+@keyframes p{50%{opacity:.25}}
+#log{flex:1;overflow:auto;display:flex;flex-direction:column;gap:8px;padding:8px 0}
+.m{max-width:85%;padding:10px 12px;border-radius:14px;background:var(--card);border:1px solid var(--bd)}.m.u{align-self:flex-end;background:var(--tx);color:var(--bg)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}.chips button{padding:8px 14px;border-radius:99px}
+.mic{width:76px;height:76px;border-radius:50%;background:var(--ac);color:#fff;border:0;font-size:30px;margin:6px auto}.mic.rec{animation:p 1s infinite}
+.warn{background:#fee4e2;color:#912018;border-radius:12px;padding:10px;font-weight:600;margin-top:8px}
+li{margin:4px 0}.k{color:var(--mu);font-size:13px}.row{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.link{background:none;border:0;color:var(--mu);font-size:13px;text-decoration:underline}
+</style></head><body><div id="app"></div>
+<script>
+const $=s=>document.querySelector(s),app=$('#app');
+let role='patient',user=null,bc=null;
+try{bc=new BroadcastChannel('medcall')}catch(e){}
+const send=m=>{try{bc&&bc.postMessage(m)}catch(e){}};
+
+const FLOWS={
+ fall:[['Did you hit your head or lose consciousness?','Head injury / LOC'],['Do you have neck or back pain? Please stay still if so.','Neck/back pain'],['Can you move your arms and legs normally?','Limb movement'],['Is there any heavy bleeding?','Bleeding'],['Roughly how many steps or how far did you fall?','Fall height'],['Any medical conditions or blood thinners?','Conditions/meds']],
+ chest:[['Is the pain spreading to your arm, jaw or back?','Radiation'],['Are you short of breath or sweating?','Breathing/sweating'],['Any heart history or medications?','Cardiac history/meds'],['When did it start?','Onset']],
+ general:[['Where is the problem, or what feels wrong?','Location/symptom'],['From 1 to 10, how severe is it?','Severity'],['When did it start?','Onset'],['Any conditions or medications?','Conditions/meds']]};
+const RED=/unconscious|passed out|not breathing|can.?t breathe|heavy bleeding|can.?t move|numb|paralys/i;
+
+function authView(){
+ app.innerHTML=`<h1>MedCall</h1><p>Voice-first medical help. Separate accounts for patients and medics.</p>
+ <div class="tabs"><button id="tp" class="${role=='patient'?'on':''}">I need help</button><button id="tm" class="${role=='medic'?'on':''}">I’m a medic</button></div>
+ <div class="card"><b>${role=='patient'?'Patient':'Medic'} sign in</b>
+ <input id="nm" placeholder="Full name"><input id="pw" type="password" placeholder="Password">
+ ${role=='medic'?'<input id="lic" placeholder="License number">':''}
+ <button class="pri" id="go">Sign in</button></div>
+ <p class="k" style="margin-top:12px">Prototype: no real authentication. Production needs server-side accounts with role claims and medic license verification.</p>`;
+ $('#tp').onclick=()=>{role='patient';authView()};$('#tm').onclick=()=>{role='medic';authView()};
+ $('#go').onclick=()=>{user=$('#nm').value||(role=='medic'?'Dr. Demo':'Alex');role=='medic'?medicView():patientHome()};
+}
+
+function patientHome(){
+ app.innerHTML=`<div class="row"><b>Hi, ${esc(user)}</b><button class="link" id="so">Sign out</button></div>
+ <div class="center"><button class="sos" id="sos">Call for<br>help</button><p>One tap. Then just talk.<br>In a life-threatening emergency, call your local emergency number first.</p></div>`;
+ $('#so').onclick=authView;$('#sos').onclick=startCall;
+}
+
+let C;
+function startCall(){
+ C={id:Date.now()+'',step:-1,flow:null,pts:[],t0:Date.now(),done:false,red:false};
+ app.innerHTML=`<div class="row"><div class="status"><span class="dot" id="dt"></span><span id="st">Calling a medic… stay with me</span></div><span class="k" id="tm">0:00</span></div>
+ <div id="warn"></div><div id="log"></div><div class="chips" id="chips"></div>
+ <div id="inp"><button class="mic" id="mic">🎙</button><input id="tx" placeholder="Or type here"></div>
+ <button class="link" id="sim">Demo: simulate medic picking up</button>`;
+ C.timer=setInterval(()=>{$('#tm').textContent=fmt((Date.now()-C.t0)/1000)},500);
+ $('#tx').onkeydown=e=>{if(e.key=='Enter'&&e.target.value){answer(e.target.value);e.target.value=''}};
+ $('#mic').onclick=listen;$('#sim').onclick=()=>pickup('Dr. Demo');
+ send({type:'case',id:C.id,name:user,pts:C.pts,red:false});
+ ai('I’m here with you, and I’m calling a medic right now. What happened?');
+}
+function ai(t){if(C.done)return;add(t,'');speak(t);chips(t)}
+function add(t,c){const l=$('#log');if(!l)return;l.insertAdjacentHTML('beforeend',`<div class="m ${c}">${esc(t)}</div>`);l.scrollTop=1e9}
+function chips(t){$('#chips').innerHTML=/^(Did|Do|Can|Is|Are|Any)/.test(t)?['Yes','No','Not sure'].map(x=>`<button>${x}</button>`).join(''):'';
+ document.querySelectorAll('#chips button').forEach(b=>b.onclick=()=>answer(b.textContent))}
+function answer(t){
+ if(C.done)return;add(t,'u');
+ if(C.step==-1){C.flow=/fall|fell|stairs|slip|tripp/i.test(t)?'fall':/chest|heart|breath/i.test(t)?'chest':'general';C.pts.push(['What happened',t])}
+ else C.pts.push([FLOWS[C.flow][C.step][1],t]);
+ if(RED.test(t)&&!C.red){C.red=true;$('#warn').innerHTML='<div class="warn">Possible serious injury. Don’t move. If you can, call your local emergency number now.</div>';speak('Please stay still. If you can, also call your local emergency number.')}
+ send({type:'case',id:C.id,name:user,pts:C.pts,red:C.red});
+ C.step++;const f=FLOWS[C.flow];
+ setTimeout(()=>{if(C.step<f.length)ai(f[C.step][0]);else{ai('Thank you. I’ve shared everything with the medic. Stay on the line.')}},500);
+}
+function pickup(medic){
+ if(!C||C.done)return;C.done=true;clearInterval(C.timer);speechSynthesis&&speechSynthesis.cancel();
+ const items=C.pts.map(p=>`<li><span class="k">${esc(p[0])}</span><br>${esc(p[1])}</li>`).join('')||'<li>No answers yet.</li>';
+ app.innerHTML=`<div class="status"><span class="dot g"></span>${esc(medic)} has joined</div>
+ <div class="card"><b>Key points shared with your medic</b><ul style="padding-left:18px;margin:8px 0 0">${items}</ul>${C.red?'<div class="warn">Flagged: possible serious injury</div>':''}</div>
+ <p class="k" style="margin-top:12px">The AI has stepped back. Speak with your medic now.</p>
+ <div class="center" style="flex:0;margin-top:auto"><button class="pri" id="end">End call</button></div>`;
+ $('#end').onclick=patientHome;
+}
+function listen(){
+ const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R){$('#tx').focus();return}
+ const r=new R();r.lang='en-US';const b=$('#mic');b.classList.add('rec');
+ r.onresult=e=>answer(e.results[0][0].transcript);r.onend=()=>b.classList.remove('rec');r.onerror=()=>b.classList.remove('rec');
+ try{speechSynthesis.cancel();r.start()}catch(e){}
+}
+function speak(t){try{const u=new SpeechSynthesisUtterance(t);u.onend=()=>{};speechSynthesis.speak(u)}catch(e){}}
+
+const cases={};
+function medicView(){
+ app.innerHTML=`<div class="row"><b>${esc(user)} · Medic</b><button class="link" id="so">Sign out</button></div>
+ <h1>Incoming cases</h1><p>Open this page in a second tab, start a patient call there, and it appears here live.</p><div id="q"></div>`;
+ $('#so').onclick=authView;drawQ();
+}
+function drawQ(){
+ const q=$('#q');if(!q)return;const ids=Object.keys(cases);
+ q.innerHTML=ids.length?ids.map(i=>{const c=cases[i];return `<div class="card"><div class="row"><b>${esc(c.name)}</b>${c.red?'<span style="color:var(--ac);font-weight:600">URGENT</span>':''}</div>
+ <ul style="padding-left:18px;margin:8px 0">${c.pts.map(p=>`<li><span class="k">${esc(p[0])}:</span> ${esc(p[1])}</li>`).join('')||'<li class="k">Triage starting…</li>'}</ul>
+ <button class="pri" data-i="${i}" ${c.taken?'disabled':''}>${c.taken?'Accepted':'Take call'}</button></div>`}).join(''):'<div class="card k">No active calls.</div>';
+ q.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>{cases[b.dataset.i].taken=1;send({type:'accept',id:b.dataset.i,medic:user});drawQ()});
+}
+if(bc)bc.onmessage=e=>{const m=e.data;
+ if(m.type=='case'&&role=='medic'&&user){cases[m.id]=Object.assign(cases[m.id]||{},m);drawQ()}
+ if(m.type=='accept'&&C&&C.id==m.id)pickup(m.medic)};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=s=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
+authView();
+</script></body></html>
